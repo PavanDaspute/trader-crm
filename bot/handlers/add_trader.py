@@ -86,6 +86,7 @@ async def process_contact(message: Message, state: FSMContext):
 async def process_source(message: Message, state: FSMContext):
     source = message.text.strip()
     if source not in VALID_SOURCES:
+        # Re-show the source keyboard so the user can try again
         await message.answer(
             f"⚠️ Please pick one of: {', '.join(VALID_SOURCES)}",
             reply_markup=source_keyboard,
@@ -97,6 +98,8 @@ async def process_source(message: Message, state: FSMContext):
 
     try:
         trader = await api.create_trader(data["name"], data["contact"], source)
+        # Pass ReplyKeyboardRemove() via the inline keyboard reply so the
+        # source keyboard disappears in the same message — no ghost message needed.
         await message.answer(
             f"✅ <b>Trader Added Successfully!</b>\n\n"
             f"👤 <b>{trader['name']}</b>\n"
@@ -108,16 +111,18 @@ async def process_source(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
         )
+        await message.answer(MENU_TEXT, parse_mode="HTML", reply_markup=main_menu_keyboard())
     except httpx.HTTPStatusError as e:
         logger.error("Failed to create trader: %s", e.response.text)
         await message.answer(
-            "❌ Failed to create trader. Please try again later.\n\n" + MENU_TEXT,
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(),
+            "❌ Failed to create trader. Please try again later.",
+            reply_markup=ReplyKeyboardRemove(),
         )
+        await message.answer(MENU_TEXT, parse_mode="HTML", reply_markup=main_menu_keyboard())
     except Exception as e:
         logger.error("Unexpected error: %s", e)
-        await message.answer("❌ An unexpected error occurred.")
-    finally:
-        # Always hide the reply keyboard
-        await message.answer("‎", reply_markup=ReplyKeyboardRemove())
+        await message.answer(
+            "❌ An unexpected error occurred.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
