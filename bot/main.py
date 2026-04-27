@@ -24,12 +24,13 @@ async def main():
     bot = Bot(token=settings.BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Register routers in priority order
+    # Register routers — order matters for callback priority:
+    # start must come first (handles nav:* callbacks shared across flows)
     dp.include_router(start.router)
-    dp.include_router(add_trader.router)
-    dp.include_router(update_status.router)
-    dp.include_router(deposit.router)
-    dp.include_router(stats.router)
+    dp.include_router(add_trader.router)    # includes nav:add_trader + AddTrader FSM
+    dp.include_router(update_status.router) # includes nav:update_status + UpdateStatus FSM + set_status callbacks
+    dp.include_router(deposit.router)       # includes nav:deposit + Deposit FSM
+    dp.include_router(stats.router)         # includes nav:stats
 
     logger.info("Starting TraderCRM Bot (backend: %s)", settings.BACKEND_URL)
     await dp.start_polling(bot, skip_updates=True)

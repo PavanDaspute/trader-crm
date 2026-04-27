@@ -1,5 +1,6 @@
 """
 /add_trader FSM handler — collects name, contact, and source.
+After success: shows smart navigation inline keyboard.
 """
 import logging
 
@@ -7,9 +8,13 @@ import httpx
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import (
+    CallbackQuery, Message,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+)
 
 from api import client as api
+from keyboards.main_menu import main_menu_keyboard, MENU_TEXT
 from states.trader_states import AddTraderStates
 
 logger = logging.getLogger(__name__)
@@ -24,14 +29,28 @@ source_keyboard = ReplyKeyboardMarkup(
 )
 
 
+async def _start_add_trader_flow(target, state: FSMContext):
+    """Shared entry point used by both /add_trader command and nav button."""
+    await state.set_state(AddTraderStates.waiting_for_name)
+    text = (
+        "📝 <b>New Trader Registration</b>\n\n"
+        "Step 1/3 — Enter the trader's <b>full name</b>:"
+    )
+    if hasattr(target, "message"):
+        # Called from a callback
+        await target.message.edit_text(text, parse_mode="HTML")
+    else:
+        await target.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+
+
 @router.message(Command("add_trader"))
 async def cmd_add_trader(message: Message, state: FSMContext):
-    await state.set_state(AddTraderStates.waiting_for_name)
-    await message.answer(
-        "📝 <b>New Trader Registration</b>\n\nStep 1/3 — Enter the trader's <b>full name</b>:",
-        parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    await _start_add_trader_flow(message, state)
+
+
+@router.callback_query(F.data == "nav:add_trader")
+async def nav_add_trader(callback: CallbackQuery, state: FSMContext):
+    await _start_add_trader_flow(callback, state)
 
 
 @router.message(AddTraderStates.waiting_for_name)
@@ -79,19 +98,26 @@ async def process_source(message: Message, state: FSMContext):
     try:
         trader = await api.create_trader(data["name"], data["contact"], source)
         await message.answer(
-            f"✅ <b>Trader created successfully!</b>\n\n"
-            f"🆔 ID: <code>{trader['id']}</code>\n"
-            f"👤 Name: {trader['name']}\n"
+            f"✅ <b>Trader Added Successfully!</b>\n\n"
+            f"👤 <b>{trader['name']}</b>\n"
             f"📞 Contact: {trader['contact']}\n"
             f"📡 Source: {trader['source']}\n"
-            f"📊 Status: <b>{trader['status'].upper()}</b>\n\n"
-            f"Use /update_status to advance their lifecycle.",
+            f"🆕 Status: <b>NEW</b>\n"
+            f"🆔 ID: <code>{trader['id']}</code>\n\n"
+            f"{MENU_TEXT}",
             parse_mode="HTML",
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=main_menu_keyboard(),
         )
     except httpx.HTTPStatusError as e:
         logger.error("Failed to create trader: %s", e.response.text)
-        await message.answer("❌ Failed to create trader. Please try again later.")
+        await message.answer(
+            "❌ Failed to create trader. Please try again later.\n\n" + MENU_TEXT,
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(),
+        )
     except Exception as e:
         logger.error("Unexpected error: %s", e)
         await message.answer("❌ An unexpected error occurred.")
+    finally:
+        # Always hide the reply keyboard
+        await message.answer("‎", reply_markup=ReplyKeyboardRemove())
